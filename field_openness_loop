@@ -4,14 +4,10 @@
 library(tidyverse) # data manipulation, workflow
 library(sf) # vector data
 library(terra) # raster data
-library(whitebox) # follow install directions here https://www.whiteboxgeo.com/manual/wbt_book/r_interface.html
 library(arcpullr) # download ESRI-hosted data
 library(cli) # color outputs
 library(beepr) # beep when error
-library(tidyverse)
-library(sf)
 library(ggmap)
-library(terra)
 library(mapview)
 library(leaflet)
 library(tmap)
