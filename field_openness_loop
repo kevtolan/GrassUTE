@@ -4,18 +4,20 @@
 library(tidyverse) # data manipulation, workflow
 library(sf) # vector data
 library(terra) # raster data
+library(whitebox) # follow install directions here https://www.whiteboxgeo.com/manual/wbt_book/r_interface.html
 library(arcpullr) # download ESRI-hosted data
 library(cli) # color outputs
 library(beepr) # beep when error
 library(ggmap)
+library(terra)
 library(mapview)
 library(leaflet)
 library(tmap)
 library(leafem)
 library(sp)
 library(ggspatial)
-library(ks)
 library(raster)
+library(ks)
 library(grid)
 library(gridExtra)
 library(classInt)
@@ -26,7 +28,6 @@ library(cowplot)
 td <- tempdir()
 out_dir <- '~/R/Grasslab hab/LiDAR_Loop'
 # terraOptions(progress = 0) # prevent progress bars during raster functions
-
 
 lake <- st_read('~/R/Grasslab hab/spat/VT_Lake_Champlain_(extracted_from_VHDCARTO)_-_polygon.shp') %>%
   st_transform(32145)
@@ -42,20 +43,30 @@ files <- list.files(out_dir, pattern = "\\.tif$")
 existing_blocks <- gsub("combined_sf_|\\.geojson", "", files)
 aoi <- aoi[order(!(aoi$BLOCKNAME %in% existing_blocks)), ] # sort existing files to top
 
-dsm_cog_url_north <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Northern/Northern_2023_35cm_DSMFR.tif")
-# dsm_cog_url_central <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Central/Central_2023_35cm_DSMFR.tif")
+# dsm_cog_url_north <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Northern/Northern_2023_35cm_DSMFR.tif")
+dsm_cog_url_central <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Central/Central_2023_35cm_DSMFR.tif")
 # dsm_cog_url_south <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Southern/Southern_2023_35cm_DSMFR.tif")
 
-dsm_cog_url <- dsm_cog_url_north
+dsm_cog_url <- dsm_cog_url_central
 raster_extent <- ext(dsm_cog_url)
-bbox_poly <- as.polygons(raster_extent, crs = crs(dsm_cog_url_north)) %>% project("EPSG:32145")
+bbox_poly <- as.polygons(raster_extent, crs = crs(dsm_cog_url)) %>% project("EPSG:32145")
 cropped_blocks <- st_crop(vt_blocks, bbox_poly)
 
 blocks <- unique(cropped_blocks$BLOCKNAME)
 total_blocks <- length(blocks)
-script_start_time <- Sys.time() # Master timer
 processed_count <- 0  # Track actual file ran
 skipped_count <- 0    # Track skipped files that already exist
+
+first_block <- aoi[aoi$BLOCKNAME == blocks[1], ]
+dsm_init <- crop(dsm_cog_url, first_block) %>% project("EPSG:32145", method = "bilinear")
+loc <- initGRASS(gisBase = '/Applications/GRASS-8.2.app/Contents/Resources',
+                 home = td,
+                 SG = dsm_init,
+                 override = TRUE)
+
+beginCluster()
+
+script_start_time <- Sys.time() # Master timer
 
 for (counter in seq_along(blocks)) {
   i <- blocks[counter]
@@ -71,29 +82,39 @@ for (counter in seq_along(blocks)) {
     blockbound <- aoi[aoi$BLOCKNAME == i, ]
 
 
-dsm_cog <- crop(dsm_cog_url, blockbound) %>% project("EPSG:32145", method = "bilinear")
+# dsm_cog <- crop(dsm_cog_url, blockbound) %>% project("EPSG:32145", method = "bilinear")
 
-loc <- initGRASS(gisBase= '/Applications/GRASS-8.2.app/Contents/Resources',
-                 home = td,
-                 SG = dsm_cog,
-                 override = TRUE)
+dsm_cog <- tryCatch(
+  crop(dsm_cog_url, blockbound) %>% project("EPSG:32145", method = "bilinear"),
+  error = function(e) {
+    cli_alert_danger("DSM crop failed for block {.val {i}}: {e$message}")
+    stop(e)
+  }
+)
+
+# loc <- initGRASS(gisBase= '/Applications/GRASS-8.2.app/Contents/Resources',
+#                  home = td,
+#                  SG = dsm_cog,
+#                  override = TRUE)
 write_RAST(dsm_cog, vname="rmask")
 
-beginCluster()
 execGRASS("r.skyview", flags=c("o","overwrite"),
           input= 'rmask', output = 'rmask.Open')
-endCluster()
 
 u1 <- read_RAST('rmask.Open')
 
-lake_block <- st_crop(lake, blockbound)
+lake_block <- tryCatch(
+  st_crop(lake, blockbound),
+  error = function(e) { sf::st_sf(geometry = sf::st_sfc(crs = st_crs(lake))) }
+)
+
 if (nrow(lake_block) > 0) {
   lake_vect <- vect(lake_block)
   u1 <- mask(u1, lake_vect, inverse = TRUE)
 }
 
 
-u1[u1[] >= 1 ] <- NA
+# u1[u1[] >= 1 ] <- NA
 u1[u1[] <= .8 ] <- NA
 
 writeRaster(u1, paste0(out_dir,"/",i,"_open.tif"), overwrite = T)
@@ -136,5 +157,6 @@ tmpFiles(remove = TRUE)
     beep(sound = 1, expr = NULL) }) # beep after error; optional
 }
 
+endCluster()
 
 
