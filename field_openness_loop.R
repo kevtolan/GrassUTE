@@ -102,8 +102,7 @@ for (counter in seq_along(blocks)) {
 
   hay_block <- tryCatch(
     st_crop(VT_hay_pasture_22, blockbound),
-    error = function(e) { sf::st_sf(geometry = sf::st_sfc(crs = st_crs(VT_hay_pasture_22))) }
-  )
+    error = function(e) { sf::st_sf(geometry = sf::st_sfc(crs = st_crs(VT_hay_pasture_22))) })
 
   if (nrow(hay_block) == 0) {
     cli_alert_warning("No hay/pasture in block {.val {i}} — skipping")
@@ -119,8 +118,7 @@ dsm_cog <- tryCatch(
   error = function(e) {
     cli_alert_danger("DSM crop failed for block {.val {i}}: {e$message}")
     stop(e)
-  }
-)
+  })
 
 loc <- initGRASS(gisBase = '/Applications/GRASS-8.2.app/Contents/Resources',
                  home = td,
@@ -137,17 +135,7 @@ u1 <- read_RAST('rmask.Open')
 hay_vect <- vect(hay_block)
 u1 <- mask(u1, hay_vect)
 
-
-# lake_block <- tryCatch(
-#   st_crop(lake, blockbound),
-#   error = function(e) { sf::st_sf(geometry = sf::st_sfc(crs = st_crs(lake))) }
-# )
-#
-# if (nrow(lake_block) > 0) {
-#   lake_vect <- vect(lake_block)
-#   u1 <- mask(u1, lake_vect, inverse = TRUE)
-# }
-
+names(u1) <- c("Open_decimal")
 
 writeRaster(u1, paste0(out_dir,"/",i,"_open.tif"), overwrite = T)
 
@@ -181,7 +169,7 @@ cli_alert_success(
 
 rm(u1,dsm_cog)
 
-gc(full = TRUE) # clear removed object memory
+gc(full = TRUE)
 tmpFiles(remove = TRUE)
 
   }, error = function(e) {
