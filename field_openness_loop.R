@@ -23,28 +23,27 @@ library(classInt)
 library(rnaturalearth)
 library(rgrass)
 library(cowplot)
+
 td <- tempdir()
 out_dir <- '~/R/Grasslab hab/LiDAR_Loop'
-
 temp_zip22 <- tempfile(fileext = ".zip")
 
 download.file("https://s3.us-east-2.amazonaws.com/vtopendata-prd/Landcover/_Packaged_Zips/LandLandcov_Agriculture2022.zip",
               destfile = temp_zip22, mode = "wb")
 unzip(temp_zip22, exdir = td)
 
-VT_hay_pasture_22 <- st_read(dsn = paste0(td, "/LandLandcov_Agriculture2022/LandLandcov_Agriculture2022.gdb"),
+VT_agr_22 <- st_read(dsn = paste0(td, "/LandLandcov_Agriculture2022/LandLandcov_Agriculture2022.gdb"),
                              layer = "LandLandcov_Agriculture2022_poly") %>%
   st_transform(crs = 32145) %>% st_make_valid() %>%
-  dplyr::filter(Class != 'Crops') %>%
-  mutate(area_ha = Shape_Area/10000,
-         area_ac = Shape_Area*0.000247105,
-         perim_area = Shape_Length/Shape_Area,
-         sourceyear = '2022') %>%
-  filter(perim_area <= 0.03,
-         area_ac >= 10) %>%
+  # dplyr::filter(Class != 'Crops') %>%
+  # mutate(area_ha = Shape_Area/10000,
+         # area_ac = Shape_Area*0.000247105,
+         # perim_area = Shape_Length/Shape_Area,
+         # sourceyear = '2022') %>%
+  # filter(perim_area <= 0.03,
+         # area_ac >= 10) %>%
   st_simplify(dTolerance = 1, preserveTopology = T) %>%
   dplyr::select(!c('gridcode'))
-
 
 vt_blocks <- get_spatial_layer("https://services1.arcgis.com/d3OaJoSAh2eh6OA9/ArcGIS/rest/services/Vermont_Wildlife_Atlasing_Blocks/FeatureServer/0",
                                out_fields = c("BLOCKNAME","QUADNAME","GEOUNITDES")) %>% st_transform(crs = 32145) # download grid
@@ -100,11 +99,11 @@ for (counter in seq_along(blocks)) {
 
   blockbound <- aoi[aoi$BLOCKNAME == i, ]
 
-  hay_block <- tryCatch(
-    st_crop(VT_hay_pasture_22, blockbound),
+  agri_block <- tryCatch(
+    st_crop(VT_agr_22, blockbound),
     error = function(e) { sf::st_sf(geometry = sf::st_sfc(crs = st_crs(VT_hay_pasture_22))) })
 
-  if (nrow(hay_block) == 0) {
+  if (nrow(agri_block) == 0) {
     cli_alert_warning("No hay/pasture in block {.val {i}} — skipping")
     skipped_count <- skipped_count + 1
     next
@@ -132,7 +131,7 @@ execGRASS("r.skyview", flags=c("o","overwrite"),
 
 u1 <- read_RAST('rmask.Open')
 
-hay_vect <- vect(hay_block)
+hay_vect <- vect(agri_block)
 u1 <- mask(u1, hay_vect)
 
 names(u1) <- c("Open_decimal")
