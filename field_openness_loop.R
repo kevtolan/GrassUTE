@@ -85,8 +85,6 @@ total_blocks <- length(blocks)
 processed_count <- 0
 skipped_count <- 0
 
-beginCluster()
-
 script_start_time <- Sys.time()
 
 for (counter in seq_along(blocks)) {
@@ -177,7 +175,5 @@ tmpFiles(remove = TRUE)
     cli_alert_danger("***** FAILED ***** block: {.val {i}}  @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} {e$message}")
     beep(sound = 1, expr = NULL) }) # beep after error; optional
 }
-
-endCluster()
 
 
