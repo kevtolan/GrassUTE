@@ -26,6 +26,8 @@ library(cowplot)
 
 td <- tempdir()
 out_dir <- '~/R/Grasslab hab/LiDAR_Loop'
+  if(!dir.exists(out_dir)) dir.create(out_dir)
+
 temp_zip22 <- tempfile(fileext = ".zip")
 
 download.file("https://s3.us-east-2.amazonaws.com/vtopendata-prd/Landcover/_Packaged_Zips/LandLandcov_Agriculture2022.zip",
