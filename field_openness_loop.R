@@ -6,7 +6,7 @@ library(sf) # vector data
 library(terra) # raster data
 library(arcpullr) # download ESRI-hosted data
 library(cli) # color outputs
-library(beepr) # beep when error
+#library(beepr) # beep when error
 library(mapview)
 library(ks)
 library(grid)
