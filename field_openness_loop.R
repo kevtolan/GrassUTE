@@ -7,16 +7,12 @@ library(terra) # raster data
 library(arcpullr) # download ESRI-hosted data
 library(cli) # color outputs
 library(beepr) # beep when error
-library(ggmap)
 library(mapview)
-library(raster)
 library(ks)
 library(grid)
 library(gridExtra)
 library(classInt)
-library(rnaturalearth)
 library(rgrass)
-library(cowplot)
 library(future)
 library(furrr)
 
