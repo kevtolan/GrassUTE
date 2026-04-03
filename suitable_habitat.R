@@ -27,7 +27,6 @@ temp_dir <- tempdir()
 
 openness_raw_dir <- '~/R/Grasslab hab/LiDAR_Loop'
 openness_files <- list.files(openness_raw_dir, pattern = "\\.tif$", full.names = TRUE)
-openness_cropped_dir <- '~/R/Grasslab hab/LiDAR_Loop_cropped'
 
 download.file("https://s3.us-east-2.amazonaws.com/vtopendata-prd/Landcover/_Packaged_Zips/LandLandcov_Agriculture2022.zip",
               destfile = temp_zip22, mode = "wb")
