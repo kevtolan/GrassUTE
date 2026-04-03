@@ -8,13 +8,7 @@ library(arcpullr) # download ESRI-hosted data
 library(cli) # color outputs
 library(beepr) # beep when error
 library(ggmap)
-library(terra)
 library(mapview)
-library(leaflet)
-library(tmap)
-library(leafem)
-library(sp)
-library(ggspatial)
 library(raster)
 library(ks)
 library(grid)
@@ -23,11 +17,11 @@ library(classInt)
 library(rnaturalearth)
 library(rgrass)
 library(cowplot)
+library(future)
+library(furrr)
 
 td <- tempdir()
 out_dir <- '~/R/Grasslab hab/LiDAR_Loop'
-  if(!dir.exists(out_dir)) dir.create(out_dir)
-
 temp_zip22 <- tempfile(fileext = ".zip")
 
 download.file("https://s3.us-east-2.amazonaws.com/vtopendata-prd/Landcover/_Packaged_Zips/LandLandcov_Agriculture2022.zip",
@@ -85,95 +79,70 @@ total_blocks <- length(blocks)
 processed_count <- 0
 skipped_count <- 0
 
+
+plan(multisession, workers = 5)
+
 script_start_time <- Sys.time()
 
-for (counter in seq_along(blocks)) {
+future_walk(seq_along(blocks), function(counter) {
   i <- blocks[counter]
-  iteration_start_time <- Sys.time()
+  # iteration_start_time <- Sys.time()
   out_file <- file.path(out_dir, paste0(i, "_open.tif"))
 
   if (file.exists(out_file)) {
     cli_alert_info("Skipping block: {.val {i}} (file already exists)")
-    skipped_count <- skipped_count + 1
-    next }
+    return(invisible(NULL))
+  }
 
   blockbound <- aoi[aoi$BLOCKNAME == i, ]
+  # blockbound <- st_as_text(st_geometry(blockbound))
 
   agri_block <- tryCatch(
     st_crop(VT_agr_22, blockbound),
-    error = function(e) { sf::st_sf(geometry = sf::st_sfc(crs = st_crs(VT_hay_pasture_22))) })
+    error = function(e) { sf::st_sf(geometry = sf::st_sfc(crs = st_crs(VT_agr_22))) })
 
   if (nrow(agri_block) == 0) {
     cli_alert_warning("No hay/pasture in block {.val {i}} — skipping")
-    skipped_count <- skipped_count + 1
-    next
+    return(invisible(NULL))
   }
 
   tryCatch({
-    blockbound <- aoi[aoi$BLOCKNAME == i, ]
+    dsm_cog_url_worker <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Central/Central_2023_35cm_DSMFR.tif")
 
-dsm_cog <- tryCatch(
-  crop(dsm_cog_url, blockbound) %>% project("EPSG:32145", method = "bilinear"),
-  error = function(e) {
-    cli_alert_danger("DSM crop failed for block {.val {i}}: {e$message}")
-    stop(e)
-  })
+    dsm_cog <- crop(dsm_cog_url_worker, blockbound) %>%
+      project("EPSG:32145", method = "bilinear")
 
-loc <- initGRASS(gisBase = '/Applications/GRASS-8.2.app/Contents/Resources',
-                 home = td,
-                 SG = dsm_cog,
-                 override = TRUE)
+    unique_home <- file.path(td, paste0("grass_worker_", Sys.getpid()))
+    dir.create(unique_home, showWarnings = FALSE, recursive = TRUE)
 
-write_RAST(dsm_cog, vname = "rmask", flags = "overwrite")
+    loc <- initGRASS(gisBase = '/Applications/GRASS-8.2.app/Contents/Resources',
+                     home = unique_home,
+                     SG = dsm_cog,
+                     override = TRUE)
 
-execGRASS("r.skyview", flags=c("o","overwrite"),
-          input= 'rmask', output = 'rmask.Open')
+    write_RAST(dsm_cog, vname = "rmask", flags = "overwrite")
 
-u1 <- read_RAST('rmask.Open')
+    execGRASS("r.skyview", flags = c("o", "overwrite"),
+              input = 'rmask', output = 'rmask.Open')
 
-hay_vect <- vect(agri_block)
-u1 <- mask(u1, hay_vect)
+    u1 <- read_RAST('rmask.Open')
 
-names(u1) <- c("Open_decimal")
+    hay_vect <- vect(agri_block)
+    u1 <- mask(u1, hay_vect)
+    names(u1) <- c("Open_decimal")
 
-writeRaster(u1, paste0(out_dir,"/",i,"_open.tif"), overwrite = T)
+    writeRaster(u1, out_file, overwrite = TRUE)
 
-processed_count <- processed_count + 1
-now <- Sys.time()
+    elapsed_iteration <- difftime(Sys.time(), iteration_start_time, units = "mins")
+    cli_alert_success(
+      "Finished block {.val {i}} ({.val {counter}}/{.val {length(blocks)}}) | took {.val {round(elapsed_iteration, 2)}} mins")
 
-elapsed_iteration <- difftime(now, iteration_start_time, units = "mins")
-elapsed_session <- difftime(now, script_start_time, units = "mins")
-avg_time_per_block <- elapsed_session / processed_count
-remaining_blocks <- total_blocks - counter
-eta_mins <- as.numeric(avg_time_per_block) * remaining_blocks
-
-eta_label <- if (eta_mins > 60) {
-  paste(round(eta_mins / 60, 1), "hours")
-} else {
-  paste(round(eta_mins, 1), "mins")
-}
-
-total_label <- if(elapsed_session > 60) {
-  paste(round(as.numeric(elapsed_session)/60, 2), "hours")
-} else {
-  paste(round(elapsed_session, 2), "mins") }
-
-cli_alert_success(
-  "Finished block {.val {i}} {.val {counter}}/{.val {total_blocks}} @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} | \\
-       This block took {.val {round(elapsed_iteration, 2)}} mins")
-
-cli_alert_success(
-  "Total time: {.val {total_label}} | \\
-       Time remaining: {.val {eta_label}}")
-
-rm(u1,dsm_cog)
-
-gc(full = TRUE)
-tmpFiles(remove = TRUE)
+    rm(u1, dsm_cog, dsm_cog_url_worker)
+    gc(full = TRUE)
 
   }, error = function(e) {
-    cli_alert_danger("***** FAILED ***** block: {.val {i}}  @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} {e$message}")
-    beep(sound = 1, expr = NULL) }) # beep after error; optional
-}
-
+    cli_alert_danger("***** FAILED ***** block: {.val {i}} @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} — {e$message}")
+    beep(sound = 1, expr = NULL)
+  })
+})
 
