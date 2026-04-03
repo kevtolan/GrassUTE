@@ -137,7 +137,7 @@ future_walk(seq_along(blocks), function(counter) {
 
   }, error = function(e) {
     cli_alert_danger("***** FAILED ***** block: {.val {i}} @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} — {e$message}")
-    beep(sound = 1, expr = NULL)
+#    beep(sound = 1, expr = NULL)
   })
 })
 
