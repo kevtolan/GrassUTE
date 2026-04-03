@@ -91,7 +91,6 @@ future_walk(seq_along(blocks), function(counter) {
   }
 
   blockbound <- aoi[aoi$BLOCKNAME == i, ]
-  # blockbound <- st_as_text(st_geometry(blockbound))
 
   agri_block <- tryCatch(
     st_crop(VT_agr_22, blockbound),
@@ -129,9 +128,9 @@ future_walk(seq_along(blocks), function(counter) {
 
     writeRaster(u1, out_file, overwrite = TRUE)
 
-    elapsed_iteration <- difftime(Sys.time(), iteration_start_time, units = "mins")
-    cli_alert_success(
-      "Finished block {.val {i}} ({.val {counter}}/{.val {length(blocks)}}) | took {.val {round(elapsed_iteration, 2)}} mins")
+#    elapsed_iteration <- difftime(Sys.time(), iteration_start_time, units = "mins")
+#    cli_alert_success(
+#      "Finished block {.val {i}} ({.val {counter}}/{.val {length(blocks)}}) | took {.val {round(elapsed_iteration, 2)}} mins")
 
     rm(u1, dsm_cog, dsm_cog_url_worker)
     gc(full = TRUE)
