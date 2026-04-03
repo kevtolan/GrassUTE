@@ -124,7 +124,7 @@ hay_pasture_stats <- VT_hay_pasture_22_parcels %>%
   left_join(all_stats, by = "rowID")
 
 
-mapview(hay_pasture_stats[hay_pasture_stats$mean_openness > 0.8,] %>% filter(!is.na(mean_openness)), zcol = "mean_openness")
+mapview(hay_pasture_stats[hay_pasture_stats$mean_openness > 0.7,] %>% filter(!is.na(mean_openness)), zcol = "mean_openness")
 
 
 
