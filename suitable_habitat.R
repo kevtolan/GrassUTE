@@ -63,15 +63,19 @@ parcels <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/ArcG
 parcels_joined <- parcels %>%
   mutate(has_landtrans = as.factor(as.integer(lengths(st_intersects(., landtrans)) > 0)))
 
-VT_soils <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/ArcGIS/rest/services/FS_VCGI_OPENDATA_Geologic_SOAG_poly_SP_v1/FeatureServer/0",
+VT_sig_soils <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/ArcGIS/rest/services/FS_VCGI_OPENDATA_Geologic_SOAG_poly_SP_v1/FeatureServer/0",
                               out_fields = c("OBJECTID","PRIME")) %>% st_transform(crs = 32145) %>% st_make_valid() %>%
   filter(!PRIME %in% c("NPSL","Not rated", "", " ")) %>%
   st_simplify(dTolerance = 1, preserveTopology = T) %>%
   rename(SoilID = OBJECTID,
          SoilClass = PRIME)
 
+VT_soils <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/ArcGIS/rest/services/FS_VCGI_OPENDATA_Geologic_SO_poly_SP_v1/FeatureServer/0") %>% st_transform(crs = 32145) %>% st_make_valid() %>%
+  st_simplify(dTolerance = 1, preserveTopology = T)
 
-VT_hay_pasture_22_soils <- VT_hay_pasture_22 %>% st_intersection(VT_soils) %>% st_make_valid()
+VT_hay_pasture_22_soils1 <- VT_hay_pasture_22 %>% st_intersection(VT_soils) %>% st_make_valid()
+
+VT_hay_pasture_22_soils <- VT_hay_pasture_22_soils1 %>% st_intersection(VT_sig_soils) %>% st_make_valid()
 
 VT_hay_pasture_22_parcels <- VT_hay_pasture_22_soils %>% st_intersection(parcels_joined) %>%
   filter(st_geometry_type(Shape) %in% c("POLYGON", "MULTIPOLYGON")) %>%
