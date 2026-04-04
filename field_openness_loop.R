@@ -102,9 +102,7 @@ future_walk(seq_along(blocks), function(counter) {
   }
 
   tryCatch({
-    dsm_cog_url_worker <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Central/Central_2023_35cm_DSMFR.tif")
-
-    dsm_cog <- crop(dsm_cog_url_worker, blockbound) %>%
+    dsm_cog <- crop(dsm_cog_url, blockbound) %>%
       project("EPSG:32145", method = "bilinear")
 
     unique_home <- file.path(td, paste0("grass_worker_", Sys.getpid()))
@@ -132,7 +130,7 @@ future_walk(seq_along(blocks), function(counter) {
 #    cli_alert_success(
 #      "Finished block {.val {i}} ({.val {counter}}/{.val {length(blocks)}}) | took {.val {round(elapsed_iteration, 2)}} mins")
 
-    rm(u1, dsm_cog, dsm_cog_url_worker)
+    rm(u1, dsm_cog)
     gc(full = TRUE)
 
   }, error = function(e) {
