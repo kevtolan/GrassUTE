@@ -80,7 +80,7 @@ VT_hay_pasture_22_soils <- VT_hay_pasture_22_soils1 %>% st_intersection(VT_sig_s
 soils_clean   <- st_set_precision(VT_hay_pasture_22_soils, 1000) %>% st_make_valid()
 parcels_clean <- st_set_precision(parcels_joined, 1000) %>% st_make_valid()
 
-VT_hay_pasture_22_parcels <- VT_hay_pasture_22_soils %>% st_intersection(parcels_joined) %>% st_buffer(0) %>%
+VT_hay_pasture_22_parcels <- soils_clean %>% st_intersection(parcels_joined) %>% st_buffer(0) %>%
   st_intersection(parcels_joined %>% st_buffer(0)) %>%
   st_make_valid() %>%
   filter(st_geometry_type(Shape) %in% c("POLYGON", "MULTIPOLYGON")) %>%
