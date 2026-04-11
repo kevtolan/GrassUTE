@@ -90,40 +90,45 @@ output_dir <- file.path(temp_dir, "masked_openness")
 if(!dir.exists(output_dir)) dir.create(output_dir)
 
 results_list <- list()
+rm(r, r_masked, hay_sf, hay_vect, hay_vect_cropped, means)
+gc()
 
 for (i in seq_along(openness_files)) {
 
   r_path <- openness_files[i]
   r <- rast(r_path)
 
-  hay_vect_cropped <- st_crop(VT_hay_pasture_22_parcels,r)
+  hay_vect_cropped <- suppressWarnings(st_crop(VT_hay_pasture_22_parcels, r))
 
   if (nrow(hay_vect_cropped) == 0) {
     message(paste0("Skipping tile ", i, ": No overlapping parcels found."))
     next
   }
 
+  hay_vect_cropped <- st_make_valid(hay_vect_cropped)
+  hay_vect_cropped <- hay_vect_cropped[!st_is_empty(hay_vect_cropped), ]
+  hay_vect_cropped <- st_collection_extract(hay_vect_cropped, "POLYGON")
+
+  if (nrow(hay_vect_cropped) == 0) {
+    message(paste0("Skipping tile ", i, ": No valid geometries after repair."))
+    next
+  }
+
   hay_vect <- vect(hay_vect_cropped)
 
-  if(crs(r) != crs(hay_vect)) {
+  if (crs(r) != crs(hay_vect)) {
     r <- project(r, crs(hay_vect))
   }
 
-  r_masked <- crop(r, hay_vect) %>%
-    mask(hay_vect)
+  r_masked <- crop(r, hay_vect) %>% mask(hay_vect)
 
   hay_sf <- st_as_sf(hay_vect)
-
   means <- exact_extract(r_masked, hay_sf, 'mean', progress = FALSE)
-
   hay_sf$Open_decimal <- means
 
   results_list[[i]] <- st_drop_geometry(hay_sf)
 
-  # out_name <- paste0("masked_", basename(r_path))
-  # writeRaster(r_masked, file.path(output_dir, out_name), overwrite = TRUE)
-
-  rm(r, r_masked, hay_sf,means)
+  rm(r, r_masked, hay_sf, hay_vect, hay_vect_cropped, means)
   gc()
 
   message(paste0("Finished tile ", i, " of ", length(openness_files)))
@@ -139,5 +144,4 @@ hay_pasture_stats <- VT_hay_pasture_22_parcels %>%
 
 
 mapview(hay_pasture_stats[hay_pasture_stats$mean_openness > 0.7,] %>% filter(!is.na(mean_openness)), zcol = "mean_openness")
-
 
