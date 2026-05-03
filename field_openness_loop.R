@@ -6,7 +6,7 @@ library(sf) # vector data
 library(terra) # raster data
 library(arcpullr) # download ESRI-hosted data
 library(cli) # color outputs
-#library(beepr) # beep when error
+library(beepr) # beep when error
 library(mapview)
 library(ks)
 library(grid)
@@ -25,15 +25,15 @@ download.file("https://s3.us-east-2.amazonaws.com/vtopendata-prd/Landcover/_Pack
 unzip(temp_zip22, exdir = td)
 
 VT_agr_22 <- st_read(dsn = paste0(td, "/LandLandcov_Agriculture2022/LandLandcov_Agriculture2022.gdb"),
-                             layer = "LandLandcov_Agriculture2022_poly") %>%
+                     layer = "LandLandcov_Agriculture2022_poly") %>%
   st_transform(crs = 32145) %>% st_make_valid() %>%
   # dplyr::filter(Class != 'Crops') %>%
   # mutate(area_ha = Shape_Area/10000,
-         # area_ac = Shape_Area*0.000247105,
-         # perim_area = Shape_Length/Shape_Area,
-         # sourceyear = '2022') %>%
+  # area_ac = Shape_Area*0.000247105,
+  # perim_area = Shape_Length/Shape_Area,
+  # sourceyear = '2022') %>%
   # filter(perim_area <= 0.03,
-         # area_ac >= 10) %>%
+  # area_ac >= 10) %>%
   st_simplify(dTolerance = 1, preserveTopology = T) %>%
   dplyr::select(!c('gridcode'))
 
@@ -55,34 +55,38 @@ bbox_poly <- as.polygons(raster_extent, crs = crs(dsm_cog_url)) %>% project("EPS
 cropped_blocks <- st_crop(vt_blocks, bbox_poly)
 bb <- st_bbox(cropped_blocks)
 
-width <- bb[["xmax"]] - bb[["xmin"]]
-western_cutoff <- bb[["xmin"]] + (width * 0.25)
+# width <- bb[["xmax"]] - bb[["xmin"]]
+# western_cutoff <- bb[["xmin"]] + (width * 0.25)
+#
+# west_coords <- matrix(c(
+#   bb[["xmin"]], bb[["ymin"]],
+#   western_cutoff, bb[["ymin"]],
+#   western_cutoff, bb[["ymax"]],
+#   bb[["xmin"]], bb[["ymax"]],
+#   bb[["xmin"]], bb[["ymin"]]),
+#   ncol = 2, byrow = TRUE)
 
-west_coords <- matrix(c(
-  bb[["xmin"]], bb[["ymin"]],
-  western_cutoff, bb[["ymin"]],
-  western_cutoff, bb[["ymax"]],
-  bb[["xmin"]], bb[["ymax"]],
-  bb[["xmin"]], bb[["ymin"]]),
-  ncol = 2, byrow = TRUE)
+# width <- bb[["xmax"]] - bb[["xmin"]]
+#
+# center_start <- bb[["xmin"]] + (width * 0.25)
+# center_end   <- bb[["xmin"]] + (width * 0.75)
+# west_coords <- matrix(c(
+#   center_start, bb[["ymin"]],
+#   center_end,   bb[["ymin"]],
+#   center_end,   bb[["ymax"]],
+#   center_start, bb[["ymax"]],
+#   center_start, bb[["ymin"]]),
+#   ncol = 2, byrow = TRUE)
 
-subset_poly <- st_sfc(st_polygon(list(west_coords)), crs = st_crs(cropped_blocks))
-
-blocks_subset <- cropped_blocks[st_intersects(cropped_blocks, subset_poly, sparse = FALSE), ]
-
-blocks <- unique(blocks_subset$BLOCKNAME)
-total_blocks <- length(blocks)
-processed_count <- 0
-skipped_count <- 0
+# subset_poly <- st_sfc(st_polygon(list(west_coords)), crs = st_crs(cropped_blocks))
+# blocks_subset <- cropped_blocks[st_intersects(cropped_blocks, subset_poly, sparse = FALSE), ]
+# blocks <- unique(blocks_subset$BLOCKNAME)
+blocks <- unique(cropped_blocks$BLOCKNAME)
 
 
-plan(multisession, workers = 5)
-
-script_start_time <- Sys.time()
-
+plan(multisession, workers = 8)
 future_walk(seq_along(blocks), function(counter) {
   i <- blocks[counter]
-  # iteration_start_time <- Sys.time()
   out_file <- file.path(out_dir, paste0(i, "_open.tif"))
 
   if (file.exists(out_file)) {
@@ -102,7 +106,9 @@ future_walk(seq_along(blocks), function(counter) {
   }
 
   tryCatch({
-    dsm_cog <- crop(dsm_cog_url, blockbound) %>%
+    dsm_cog_url_worker <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Central/Central_2023_35cm_DSMFR.tif")
+
+    dsm_cog <- crop(dsm_cog_url_worker, blockbound) %>%
       project("EPSG:32145", method = "bilinear")
 
     unique_home <- file.path(td, paste0("grass_worker_", Sys.getpid()))
@@ -126,16 +132,16 @@ future_walk(seq_along(blocks), function(counter) {
 
     writeRaster(u1, out_file, overwrite = TRUE)
 
-#    elapsed_iteration <- difftime(Sys.time(), iteration_start_time, units = "mins")
-#    cli_alert_success(
-#      "Finished block {.val {i}} ({.val {counter}}/{.val {length(blocks)}}) | took {.val {round(elapsed_iteration, 2)}} mins")
+    # elapsed_iteration <- difftime(Sys.time(), iteration_start_time, units = "mins")
+    # cli_alert_success(
+      # "Finished block {.val {i}} ({.val {counter}}/{.val {length(blocks)}}) | took {.val {round(elapsed_iteration, 2)}} mins")
 
-    rm(u1, dsm_cog)
+    rm(u1, dsm_cog, dsm_cog_url_worker)
     gc(full = TRUE)
 
   }, error = function(e) {
     cli_alert_danger("***** FAILED ***** block: {.val {i}} @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} — {e$message}")
-#    beep(sound = 1, expr = NULL)
+    # beep(sound = 1, expr = NULL)
   })
 })
 
