@@ -1,0 +1,158 @@
+# open grassGIS CLI
+# enter 'open -na Rstudio' in console
+
+library(tidyverse) # data manipulation, workflow
+library(sf) # vector data
+library(terra) # raster data
+library(arcpullr) # download ESRI-hosted data
+library(cli) # color outputs
+library(beepr) # beep when error
+library(mapview)
+library(ks)
+library(grid)
+library(gridExtra)
+library(classInt)
+library(rgrass)
+library(future)
+library(furrr)
+
+td <- tempdir()
+out_dir <- '~/R/Grasslab hab/LiDAR_Loop'
+temp_zip22 <- tempfile(fileext = ".zip")
+
+download.file("https://s3.us-east-2.amazonaws.com/vtopendata-prd/Landcover/_Packaged_Zips/LandLandcov_Agriculture2022.zip",
+              destfile = temp_zip22, mode = "wb")
+unzip(temp_zip22, exdir = td)
+
+VT_agr_22 <- st_read(dsn = paste0(td, "/LandLandcov_Agriculture2022/LandLandcov_Agriculture2022.gdb"),
+                     layer = "LandLandcov_Agriculture2022_poly") %>%
+  st_transform(crs = 32145) %>% st_make_valid() %>%
+  # dplyr::filter(Class != 'Crops') %>%
+  # mutate(area_ha = Shape_Area/10000,
+  # area_ac = Shape_Area*0.000247105,
+  # perim_area = Shape_Length/Shape_Area,
+  # sourceyear = '2022') %>%
+  # filter(perim_area <= 0.03,
+  # area_ac >= 10) %>%
+  st_simplify(dTolerance = 1, preserveTopology = T) %>%
+  dplyr::select(!c('gridcode'))
+
+
+
+# === Setup ===
+vt_blocks <- st_read('/Users/kevintolan/R/R_Spatial/BBA_Blocks/VT03_grid.shp') %>%
+  st_transform(crs = 32145)
+
+dsm_urls <- list(
+  central = "/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Central/Central_2023_35cm_DSMFR.tif",
+  south   = "/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Southern/Southern_2023_35cm_DSMFR.tif",
+  north   = "/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/_Other/Projects/2023_Lidar/PreliminaryData/Northern/Northern_2023_35cm_DSMFR.tif"
+)
+
+plan(multisession, workers = 8)
+
+for (region in names(dsm_urls)) {
+
+  message("\n=== Processing region: ", region, " ===")
+
+  dsm_cog_url <- rast(dsm_urls[[region]])
+  raster_extent <- ext(dsm_cog_url)
+  bbox_poly <- as.polygons(raster_extent, crs = crs(dsm_cog_url)) %>%
+    project("EPSG:32145")
+
+  cropped_blocks <- st_crop(vt_blocks, bbox_poly)
+  bb <- st_bbox(cropped_blocks) %>% st_as_sfc() %>% st_as_sf()
+  blocks_subset <- cropped_blocks[st_intersects(cropped_blocks, bb, sparse = FALSE), ]
+  blocks <- unique(blocks_subset$BLOCKNAME)
+
+  existing_files  <- list.files(out_dir, pattern = "\\.tif$")
+  existing_blocks <- gsub("_open\\.tif$", "", existing_files)
+
+  all_out_files     <- file.path(out_dir, paste0(blocks, "_open.tif"))
+  missing_indices   <- !file.exists(all_out_files)
+  blocks_to_process <- blocks[missing_indices]
+
+  message("  Blocks in region:     ", length(blocks))
+  message("  Already done:         ", sum(!missing_indices))
+  message("  Remaining to process: ", length(blocks_to_process))
+
+  if (length(blocks_to_process) == 0) {
+    message("  All blocks complete — skipping region.")
+    next
+  }
+
+  region_url <- dsm_urls[[region]]
+
+  future_walk(seq_along(blocks_to_process), function(counter) {
+
+    i        <- blocks_to_process[counter]
+    out_file <- file.path(out_dir, paste0(i, "_open.tif"))
+
+    if (file.exists(out_file)) {
+      cli_alert_info("Skipping block: {.val {i}} (file already exists)")
+      return(invisible(NULL))
+    }
+
+    blockbound <- blocks_subset[blocks_subset$BLOCKNAME == i, ]
+
+    agri_block <- tryCatch(
+      st_crop(VT_agr_22, blockbound),
+      error = function(e) {
+        sf::st_sf(geometry = sf::st_sfc(crs = st_crs(VT_agr_22)))
+      }
+    )
+
+    if (nrow(agri_block) == 0) {
+      cli_alert_warning("No hay/pasture in block {.val {i}} — skipping")
+      return(invisible(NULL))
+    }
+
+    tryCatch({
+
+      dsm_cog_url_worker <- rast(paste0("/vsicurl/", region_url) |>
+                                   gsub("^/vsicurl//vsicurl/", "/vsicurl/", x = _))
+      dsm_cog_url_worker <- rast(region_url)
+
+      dsm_cog <- crop(dsm_cog_url_worker, blockbound) %>%
+        project("EPSG:32145", method = "bilinear")
+
+      unique_home <- file.path(td, paste0("grass_worker_", Sys.getpid()))
+      dir.create(unique_home, showWarnings = FALSE, recursive = TRUE)
+
+      loc <- initGRASS(
+        gisBase  = '/Applications/GRASS-8.2.app/Contents/Resources',
+        home     = unique_home,
+        SG       = dsm_cog,
+        override = TRUE
+      )
+
+      write_RAST(dsm_cog, vname = "rmask", flags = "overwrite")
+      execGRASS("r.skyview", flags = c("o", "overwrite"),
+                input = "rmask", output = "rmask.Open")
+
+      u1       <- read_RAST("rmask.Open")
+      hay_vect <- vect(agri_block)
+      u1       <- mask(u1, hay_vect)
+      names(u1) <- "Open_decimal"
+
+      writeRaster(u1, out_file, overwrite = TRUE)
+
+      cli_alert_success(
+        "Finished block {.val {i}} ({.val {counter}}/{.val {length(blocks_to_process)}}) [{region}]"
+      )
+
+      rm(u1, dsm_cog, dsm_cog_url_worker)
+      gc(full = TRUE)
+
+    }, error = function(e) {
+      cli_alert_danger(
+        "***** FAILED ***** block: {.val {i}} [{region}] @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} — {e$message}"
+      )
+    })
+  })
+}
+
+plan(sequential)
+
+
+
