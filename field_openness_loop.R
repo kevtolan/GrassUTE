@@ -324,12 +324,16 @@ hay_list <- split(hay_polys, hay_polys$CNTYNAME)
 
 lapply(names(hay_list), function(county) {
 
-  file_name <- paste0("~/R/Grasslab hab/Combined_open/hay_polys_", county,".shp")
+  file_name <- paste0("~/R/Grasslab hab/Combined_open/hay_polys_", county, ".shp")
+  
+  current_county <- hay_list[[county]]
 
-  hay_list[[county]]$Shp__Ar <- round(as.numeric(hay_list[[county]]$Shape_Area), 2)
+  current_county <- current_county %>% dplyr::select(-Shape__Area, -Shape__Length)
 
-  st_write(hay_list[[county]], file_name, delete_dsn = TRUE, append = FALSE)
+
+  st_write(current_county, file_name, delete_dsn = TRUE, append = FALSE)
 })
+
 
 
 
